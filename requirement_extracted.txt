@@ -1,0 +1,306 @@
+
+
+
+Database tables — Spanish → English mapping & descriptions
+
+(No references to repository or migrations; self-contained brief for freelancers)
+
+Instructions for freelancer (short): The mobile app and API must use the database tables listed below. Table names are shown in Spanish (the production DB uses Spanish names). For API documentation and code you may use the suggested English names. For each API endpoint described later, indicate which table(s) it reads/writes. All data-changing operations that affect credits and stock must be atomic (single DB transaction). Provide schema DDL or migrations as deliverables, tests for concurrency safety, and seed data for local testing.
+
+
+
+
+
+1. AppUser / AspNetUsers
+
+Suggested English name: users Purpose: User accounts (hospital staff/employees). Authentication & profile data. Key columns:
+
+id (UUID / primary key)
+
+email (string, unique)
+
+password_hash (string) or external-auth indicator
+
+name (string)
+
+role (enum: user, technician, admin)
+
+department_id (FK)
+
+is_active (bool)
+
+created_at, updated_at, last_login_at Notes: Used by /auth and /me endpoints. Support biometric unlocking on the client; tokens issued by API.
+
+
+
+
+
+2. AppUserCustomer
+
+Suggested English name: user_customers Purpose: Link users to customers (organization / hospital / subclient). Key columns: id, user_id, customer_id, assigned_at.
+
+
+
+
+
+3. MasterClientes / Clientes
+
+Suggested English name: customers Purpose: Hospitals, clinics, or corporate clients. Machines and users belong to a customer. Key columns: id, name, address, contact_name, phone, customer_code, created_at.
+
+
+
+
+
+4. Modelos / garment models
+
+Suggested English name: garment_models Purpose: Types of garments (references used in stock and transactions). Key columns: id, code, name, description, default_size, credit_value, created_at.
+
+
+
+
+
+5. Tallas / size tables (or symbolic size mapping)
+
+Suggested English name: sizes, model_size_symbols Purpose: Size definitions; mapping of sizes to models if needed (S/M/L or numeric). Key columns: id, model_id, size_label, symbol, created_at. Notes: The app will keep a user’s preferred size per garment model.
+
+
+
+
+
+6. MovCreditos / credits (or model/department credits)
+
+Suggested English name: user_credits, model_department_credits Purpose: Current credit balances (per user and/or per garment model/department). Key columns: id, user_id, model_id (optional), amount (numeric), updated_at. Notes: All updates must be transactional and auditable. Use logical constraints to avoid negative balances if business requires.
+
+
+
+
+
+7. Movements, Mov / Transactions / Movimientos
+
+Suggested English name: movements, transactions Purpose: Audit trail: every operation that affects stock or credits (collect, return, reserve, adjust, cancel). Key columns:
+
+id (UUID)
+
+user_id
+
+type (collect/return/adjust/reserve/cancel)
+
+model_id, size, quantity
+
+credit_delta (numeric)
+
+machine_id
+
+status (pending/complete/failed)
+
+created_at, processed_at, notes, performed_by Notes: API POST /transactions inserts here and triggers updates to user_credits and machine_stock inside the same DB transaction.
+
+
+
+
+
+8. Machines / Almacenes / dispenser points
+
+Suggested English name: machines, dispensing_machines, warehouses Purpose: Dispenser devices, machine locations or storage points. Key columns: id, name, code, lat (decimal), lng (decimal), address, status, customer_id, created_at.
+
+
+
+
+
+9. ListaPrendasDisponiblesEnMaquinaDispensacionNuevo (machine stock)
+
+Suggested English name: machine_stock, available_garments_in_machine Purpose: Stock per machine (which garment models and quantities are available). Key columns: id, machine_id, model_id, qty_available, qty_reserved, last_updated. Notes: Critical for POST /transactions (decrement on collect); must be updated atomically.
+
+
+
+
+
+10. ListaPrendasDisponiblesSubClienteNuevo (subclient stock)
+
+Suggested English name: subclient_stock Purpose: Garment availability allocated to a subclient/department rather than to a machine. Key columns: id, subclient_id, model_id, qty_available, last_updated.
+
+
+
+
+
+11. MovMaquinaTiempoDispensado (machine metrics)
+
+Suggested English name: machine_dispense_time, machine_metrics Purpose: Telemetry: start/end dispense times, durations, status — useful for analytics and SLA. Key columns: id, machine_id, transaction_id, dispense_start, dispense_end, duration_ms, status.
+
+
+
+
+
+12. Almacenes / central warehouses
+
+Suggested English name: warehouses, warehouse_stock Purpose: Central logistic stock (not machine-level). Used for restocking machines. Key columns: id, name, location, model_id, qty, last_updated.
+
+
+
+
+
+13. MasterNotificaciones / MaterEmailConfiguracion (notifications & email config)
+
+Suggested English name: notifications, email_configurations Purpose: Notification channels, templates, and SMTP/email server configuration. Key columns: id, type, template, is_enabled, smtp_host, smtp_port, smtp_user.
+
+
+
+
+
+14. Support / Tickets (Soporte)
+
+Suggested English name: support_tickets, incidents Purpose: Tickets opened by users with optional photo(s) for machine/garment incidents. Key columns: id, user_id, machine_id, subject, description, image_url, status, created_at, handled_by.
+
+
+
+
+
+15. IntentosLoginFallidos (failed login attempts)
+
+Suggested English name: failed_login_attempts, security_events Purpose: Security: track failed logins, IPs, user agents, timestamps for locking / alerts. Key columns: id, user_email, attempted_at, ip_address, user_agent.
+
+
+
+
+
+16. Auxiliary/master tables
+
+departamentos → departments (id, name)
+
+roles / UserRoles → roles, user_roles
+
+device_tokens → device_tokens (store FCM/APNS tokens: id, user_id, platform, token, created_at)
+
+
+
+
+
+Database design & operational notes (applies to all tables)
+
+Primary keys: UUIDs preferred for global uniqueness.
+
+Timestamps: Add created_at, updated_at and optional processed_at.
+
+Indexes: Index user_id, machine_id, model_id, and created_at. For geo search add an index/GIST on lat/lng or use PostGIS.
+
+Transactions: Any flow that updates user_credits and machine_stock must be executed inside a single DB transaction. Prefer row-level locks or optimistic concurrency. Provide automated tests simulating concurrent updates.
+
+Auditing: For credit and stock changes record performed_by, performed_from_ip and store the original values if needed.
+
+Referential integrity: Use FK constraints. For deletions use soft-delete pattern or documented cascade rules.
+
+Soft deletes: Consider is_deleted flags if historical data must be preserved.
+
+Backfill & migrations: Deliver all schema changes as versioned migrations (DDL or migration scripts). Provide seed data for testing.
+
+Security: Use parameterized queries/ORM; validate all inputs server-side. Limit sensitive logs.
+
+Data modeling decision: If credits are per department/model rather than per-user, clarify the business logic (who consumes credits and how they are accumulated/spent).
+
+
+
+
+
+API endpoints (mapping to tables) — minimal MVP
+
+
+Authentication
+
+POST /auth/login → reads users Request: { &quot;email&quot;: &quot;...&quot;, &quot;password&quot;: &quot;...&quot; } Response: { &quot;access_token&quot;:&quot;..&quot;, &quot;refresh_token&quot;:&quot;..&quot;, &quot;expires_in&quot;:3600 }
+
+POST /auth/refresh → refresh tokens
+
+POST /auth/logout → invalidate refresh token
+
+
+User
+
+GET /me → users, user_customers, departments
+
+GET /me/credits → user_credits
+
+GET /me/sizes → sizes (user preferences)
+
+PUT /me/sizes → update user size preferences
+
+
+Transactions & movements
+
+GET /me/movements?from=&to=&type=&page=&size= → movements
+
+POST /transactions → transactional operation: insert into movements, update user_credits, update machine_stock (all in one transaction) Request: {  &quot;machine_id&quot;:&quot;uuid&quot;,  &quot;items&quot;:[{&quot;model_id&quot;:&quot;uuid&quot;,&quot;size&quot;:&quot;M&quot;,&quot;qty&quot;:1}],  &quot;type&quot;:&quot;collect&quot;} Response: { &quot;id&quot;:&quot;transaction-uuid&quot;, &quot;status&quot;:&quot;pending&quot; }
+
+POST /transactions/{id}/cancel → updates movements and reverses credits/stock if allowed
+
+
+Machines & stock
+
+GET /machines?lat=&lng=&radius= → machines + machine_stock
+
+GET /machines/{id} → machines + machine_stock + recent movements for that machine
+
+
+Notifications & devices
+
+POST /notifications/register → device_tokens (user_id, platform, token)
+
+
+Support
+
+POST /support/tickets → support_tickets (triggers notification/email)
+
+
+
+
+
+Concurrency & correctness tests (requirements for freelancer)
+
+Provide automated tests illustrating that POST /transactions is safe under concurrency (e.g., 10 concurrent requests that would decrement the same machine stock). The final stock and credits must be consistent.
+
+Provide tests for negative-balance prevention if business forbids it.
+
+
+
+
+
+Acceptance criteria (DB + API)
+
+Schema DDL/migrations and seed data delivered.
+
+OpenAPI (Swagger) documentation describing endpoints and mapping to tables.
+
+POST /transactions demo runs on local DB and performs movement insert + credit & stock update in a single transaction. Tests for concurrency pass.
+
+GET /me/credits, GET /me/sizes and GET /me/movements work and return expected fields.
+
+Device tokens stored and notifications endpoint registered.
+
+Basic security: JWT auth, TLS assumption, parameterized queries/ORM usage documented.
+
+ERD diagram (simple) showing the tables above and their PK/FK relationships.
+
+README with local run instructions.
+
+
+
+
+
+Short ERD (textual, example relationships)
+
+users (1) ──< user_customers >── (1) customers
+
+users (1) ──< movements >── (1) machines
+
+garment_models (1) ──< machine_stock >── (1) machines
+
+users (1) ──< user_credits >
+
+machines (1) ──< machine_stock >
+
+subclients (1) ──< subclient_stock >
+
+movements → updates → user_credits, machine_stock (in same DB tx)
+
+
+
+
